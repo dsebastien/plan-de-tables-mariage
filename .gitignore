@@ -1,0 +1,11 @@
+# Exports locaux — ils contiennent de vraies listes d'invités, ne les committez pas
+plan-de-tables*.json
+liste-invites*.json
+!examples/*.json
+
+# Systèmes et éditeurs
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

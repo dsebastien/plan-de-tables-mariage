@@ -1,0 +1,63 @@
+{
+  "type": "liste-invites",
+  "groups": [
+    {
+      "name": "Mariés",
+      "units": [
+        [["Alex", "F"], ["Camille", "M"]]
+      ]
+    },
+    {
+      "name": "Témoins",
+      "units": [
+        [["Louise", "F"], ["Martin", "M"]],
+        [["Nadia", "F"]],
+        [["Youssef", "M"]]
+      ]
+    },
+    {
+      "name": "Famille Alex",
+      "units": [
+        [["Claire Dupont", "F"], ["Bernard Dupont", "M"]],
+        [["Élise", "F"], ["Thomas", "M"]],
+        [["Mamie Jeanne", "F"]],
+        [["Oncle Robert", "M"]]
+      ]
+    },
+    {
+      "name": "Famille Camille",
+      "units": [
+        [["Sofia", "F"], ["Marc", "M"]],
+        [["Hélène", "F"]],
+        [["Paul", "M"], ["Anne-Marie", "F"]]
+      ]
+    },
+    {
+      "name": "Amis",
+      "units": [
+        [["Julie", "F"], ["Antoine", "M"]],
+        [["Sam", "?"]],
+        [["Farid", "M"]],
+        [["Margot", "F"]],
+        [["Chloé", "F"], ["Gaspard", "M"]]
+      ]
+    },
+    {
+      "name": "Collègues",
+      "units": [
+        [["Ingrid", "F"]],
+        [["Pierre-Yves", "M"], ["Laura", "F"]],
+        [["Kenji", "M"]]
+      ]
+    },
+    {
+      "name": "Enfants & ados",
+      "units": [
+        [["Léa (8)", "F"]],
+        [["Noé (11)", "M"]],
+        [["Zoé (14)", "F"]],
+        [["Timéo (16)", "M"]]
+      ]
+    }
+  ]
+}

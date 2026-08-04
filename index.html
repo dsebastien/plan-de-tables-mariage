@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan de tables</title>
+<meta name="description" content="Plan de tables — un outil local, sans compte ni serveur, pour composer et comparer plusieurs dispositions de tables (mariage, banquet, séminaire).">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&display=swap');
+:root{
+  --ink:#26251f; --bg:#f3f4f0; --accent:#3e5c41; --gold:#b08d3e;
+  --m:#4a6fa5; --f:#c2607e; --u:#9c978b;
+}
+body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+.display{font-family:'Cormorant Garamond',Georgia,serif;}
+.chip{touch-action:manipulation;user-select:none;-webkit-user-select:none;cursor:grab;}
+.chip:active{cursor:grabbing;}
+.chip.sel{outline:2px solid var(--accent);outline-offset:1px;background:#eef2ec;}
+.dz-over{background:#e8efe8 !important;outline:2px dashed var(--accent);outline-offset:-2px;}
+.mv-target{outline:2px dashed var(--gold);outline-offset:2px;animation:pulse 1.4s ease-in-out infinite;}
+@keyframes pulse{50%{outline-color:#e2c98a;}}
+@media (prefers-reduced-motion: reduce){.mv-target{animation:none;}}
+.dot{width:.7rem;height:.7rem;border-radius:9999px;flex:none;display:inline-block;}
+.tbl-rule{border-top:1px solid #d8d5cc;position:relative;}
+.tbl-rule::after{content:"";position:absolute;left:0;right:0;top:2px;border-top:1px solid #d8d5cc;}
+button:focus-visible,[draggable]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+input[data-edit]{font:inherit;}
+#eventName{font:inherit;}
+#eventName::placeholder{color:#a8a49a;font-style:italic;}
+</style>
+</head>
+<body class="min-h-screen pb-28">
+
+<header class="sticky top-0 z-20 bg-[#f3f4f0]/95 backdrop-blur border-b border-stone-300">
+  <div class="max-w-5xl mx-auto px-3 py-2.5 flex items-center gap-2 flex-wrap">
+    <h1 class="display text-2xl font-semibold leading-none">Plan de tables</h1>
+    <span class="text-[color:var(--gold)] leading-none">·</span>
+    <input id="eventName" maxlength="60" placeholder="Nom de l'événement"
+           title="Nom de l'événement — apparaît dans le nom des fichiers exportés"
+           class="display text-2xl font-semibold leading-none bg-transparent border-0 border-b border-dashed border-stone-300 focus:border-[color:var(--accent)] focus:outline-none px-0.5 w-40 sm:w-56">
+    <span id="totalCount" class="text-xs text-stone-500"></span>
+    <span class="flex-1"></span>
+    <span class="inline-flex items-center rounded-lg border border-stone-300 bg-white overflow-hidden text-sm">
+      <span class="px-2 py-1.5 text-stone-400 text-xs uppercase tracking-wide border-r border-stone-200">Plan</span>
+      <button data-act="export-plan" title="Exporter le plan complet (options, tables, placements)" class="px-2.5 py-1.5 hover:bg-stone-50">Exporter</button>
+      <button data-act="import-plan" title="Importer un plan exporté" class="px-2.5 py-1.5 hover:bg-stone-50 border-l border-stone-200">Importer</button>
+    </span>
+    <span class="inline-flex items-center rounded-lg border border-stone-300 bg-white overflow-hidden text-sm">
+      <span class="px-2 py-1.5 text-stone-400 text-xs uppercase tracking-wide border-r border-stone-200">Liste</span>
+      <button data-act="export-list" title="Exporter la liste des personnes (groupes, couples, genres)" class="px-2.5 py-1.5 hover:bg-stone-50">Exporter</button>
+      <button data-act="import-list" title="Importer une liste de personnes (remplace la liste actuelle, les placements sont conservés par nom)" class="px-2.5 py-1.5 hover:bg-stone-50 border-l border-stone-200">Importer</button>
+    </span>
+    <button data-act="add-person" class="text-sm px-3 py-1.5 rounded-lg border border-stone-300 bg-white hover:bg-stone-50">+ Personne</button>
+    <button data-act="add-sc" class="text-sm px-3 py-1.5 rounded-lg bg-[color:var(--accent)] text-white hover:opacity-90">+ Option</button>
+    <button data-act="reset-all" title="Tout effacer et repartir de zéro" class="text-xs px-2 py-1.5 rounded-lg text-stone-400 hover:bg-rose-50 hover:text-rose-600">Réinitialiser</button>
+  </div>
+</header>
+
+<main id="app" class="max-w-5xl mx-auto px-3 py-4 space-y-6"></main>
+
+<div id="selBar" class="fixed bottom-0 inset-x-0 z-30 hidden">
+  <div class="max-w-5xl mx-auto m-3 px-4 py-3 rounded-xl bg-[color:var(--ink)] text-white shadow-lg flex items-center gap-3 text-sm">
+    <span id="selText" class="flex-1 min-w-0 truncate"></span>
+    <button data-act="sel-x" class="px-3 py-1 rounded-lg bg-white/15 hover:bg-white/25 flex-none">Annuler</button>
+  </div>
+</div>
+
+<input type="file" id="importFile" accept="application/json,.json" class="hidden">
+
+<script>
+/* ================= Données ================= */
+const GCOLORS = ['#b08d3e','#7c6aa6','#3e7c68','#4a6fa5','#c2607e','#a6693e','#5f7d3e','#8a5a83'];
+const uid = () => Math.random().toString(36).slice(2,9);
+const LS_KEY = 'plan-de-tables:v1';
+
+/* L'application démarre vide : la liste des personnes se construit via
+   « + Personne » ou via « Liste › Importer » (voir examples/). */
+function buildInitial(){
+  return { version: 1, title: '', groups: [], scenarios: [] };
+}
+
+let state = buildInitial();
+let UMAP = {}, PMAP = {};
+let SEL = null;   // {sid, u}
+let DRAG = null;  // {sid, u}
+let EDIT = null;  // {t:'sc'|'tb', sid, tid}
+let ADDP = false; // formulaire « + Personne » ouvert
+let LASTG = null; // dernier groupe utilisé pour l'ajout
+
+function reindex(){
+  UMAP = {}; PMAP = {};
+  for (const g of state.groups) for (const u of g.units){
+    UMAP[u.id] = { unit: u, group: g };
+    for (const p of u.members) PMAP[p.id] = p;
+  }
+}
+
+/* ================= Persistance locale ================= */
+/* Tout reste dans le navigateur : aucun compte, aucun serveur, aucune donnée envoyée. */
+function persist(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch(_){}
+}
+function loadPersisted(){
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || !Array.isArray(d.groups) || !Array.isArray(d.scenarios)) return null;
+    if (typeof d.title !== 'string') d.title = '';
+    return d;
+  } catch(_){ return null; }
+}
+
+/* ================= Helpers ================= */
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const scById = id => state.scenarios.find(s => s.id === id);
+const tbById = (sc,id) => sc.tables.find(t => t.id === id);
+const unitNames = u => u.members.map(p => p.name).join(' & ');
+const unitSize = u => u.members.length;
+const seats = t => t.units.reduce((n,uidv) => n + (UMAP[uidv] ? unitSize(UMAP[uidv].unit) : 0), 0);
+const totalGuests = () => state.groups.reduce((n,g) => n + g.units.reduce((m,u) => m + u.members.length, 0), 0);
+const slug = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g,'')
+  .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+
+function genderCount(t){
+  const c = { M:0, F:0, '?':0 };
+  for (const uidv of t.units){ const e = UMAP[uidv]; if(!e) continue;
+    for (const p of e.unit.members) c[p.g] = (c[p.g]||0) + 1; }
+  return c;
+}
+function assignedSet(sc){
+  const s = new Set();
+  sc.tables.forEach(t => t.units.forEach(u => s.add(u)));
+  return s;
+}
+function removeUnit(sc, u){ sc.tables.forEach(t => t.units = t.units.filter(x => x !== u)); }
+function moveUnit(sc, u, tid, before){
+  removeUnit(sc, u);
+  if (!tid) return; // retour vers invités
+  const t = tbById(sc, tid); if (!t) return;
+  if (before && before !== u){
+    const i = t.units.indexOf(before);
+    if (i >= 0){ t.units.splice(i, 0, u); return; }
+  }
+  t.units.push(u);
+}
+function newScenario(){
+  const n = state.scenarios.length + 1;
+  return { id: uid(), name: 'Option ' + n, collapsed:false, tables: [] };
+}
+function newTable(sc){
+  return { id: uid(), name: 'Table ' + (sc.tables.length + 1), units: [] };
+}
+function addGroup(name){
+  const g = { id: uid(), name, color: GCOLORS[state.groups.length % GCOLORS.length], units: [] };
+  state.groups.push(g);
+  return g;
+}
+
+/* ================= Rendu ================= */
+const GDOT = { M:'var(--m)', F:'var(--f)', '?':'var(--u)' };
+const app = document.getElementById('app');
+
+function chipHTML(sid, u, ctx){ // ctx: {tid, locked} si dans une table
+  const g = UMAP[u.id].group;
+  const locked = ctx && ctx.locked;
+  const selected = !locked && SEL && SEL.sid === sid && SEL.u === u.id;
+  const members = u.members.map(p =>
+    `<span class="flex items-center gap-1.5 min-w-0">
+      ${locked
+        ? `<span class="dot" style="background:${GDOT[p.g]}"></span>`
+        : `<button data-act="gender" data-p="${p.id}" title="Genre : ${p.g} (toucher pour changer)"
+            class="dot" style="background:${GDOT[p.g]}"></button>`}
+      <span class="truncate">${esc(p.name)}</span>
+    </span>`).join('');
+  const couple = u.members.length > 1
+    ? `<span class="text-[10px] text-stone-400 border border-stone-200 rounded px-1">×2</span>` : '';
+  const ctrls = (ctx && !locked) ? `
+    <span class="flex items-center gap-0.5 ml-auto flex-none text-stone-400">
+      <button data-act="u-up"  data-sid="${sid}" data-tid="${ctx.tid}" data-u="${u.id}" title="Monter" class="w-7 h-7 rounded hover:bg-stone-100 hover:text-stone-700">▲</button>
+      <button data-act="u-dn"  data-sid="${sid}" data-tid="${ctx.tid}" data-u="${u.id}" title="Descendre" class="w-7 h-7 rounded hover:bg-stone-100 hover:text-stone-700">▼</button>
+      <button data-act="u-out" data-sid="${sid}" data-u="${u.id}" title="Retirer de la table" class="w-7 h-7 rounded hover:bg-rose-50 hover:text-rose-600">✕</button>
+    </span>` : `
+    <span class="flex items-center gap-1 ml-auto flex-none">
+      ${couple}
+      ${ctx ? '' : `<button data-act="u-del" data-u="${u.id}" title="Supprimer de la liste" class="w-6 h-6 rounded text-stone-300 hover:bg-rose-50 hover:text-rose-600">✕</button>`}
+    </span>`;
+  return `
+  <div class="chip flex items-center gap-2 bg-white rounded-lg border border-stone-200 px-2 py-1.5 text-sm ${selected ? 'sel' : ''} ${locked ? '!cursor-default' : ''}"
+       ${locked ? '' : `draggable="true" tabindex="0" data-chip data-sid="${sid}" data-u="${u.id}"`}
+       style="border-left:4px solid ${g.color}">
+    <span class="flex flex-col gap-0.5 min-w-0">${members}</span>
+    ${ctrls}
+  </div>`;
+}
+
+function tableHTML(sid, sc, t, idx){
+  const n = seats(t), gc = genderCount(t);
+  const locked = !!t.locked;
+  const editing = !locked && EDIT && EDIT.t === 'tb' && EDIT.sid === sid && EDIT.tid === t.id;
+  const name = editing
+    ? `<input data-edit value="${esc(t.name)}" class="display text-lg font-semibold bg-white border border-stone-300 rounded px-1 w-36">`
+    : locked
+      ? `<span class="display text-lg font-semibold">${esc(t.name)}</span>`
+      : `<button data-act="ren-tb" data-sid="${sid}" data-tid="${t.id}" class="display text-lg font-semibold hover:underline decoration-dotted text-left">${esc(t.name)}</button>`;
+  const chips = t.units.map(uidv => UMAP[uidv] ? chipHTML(sid, UMAP[uidv].unit, { tid: t.id, locked }) : '').join('');
+  return `
+  <section class="rounded-xl border shadow-sm ${locked ? 'bg-emerald-50/70 border-emerald-300' : 'bg-white border-stone-200'} ${!locked && SEL && SEL.sid === sid ? 'mv-target' : ''}"
+           ${locked ? '' : `data-move data-sid="${sid}" data-tid="${t.id}"`}>
+    <div class="px-3 pt-2.5 flex items-center gap-1.5 flex-wrap">
+      ${name}
+      ${locked ? '<span class="text-[10px] uppercase tracking-wide text-emerald-700 font-medium">validée</span>' : ''}
+      <span class="flex-1"></span>
+      <button data-act="lock-tb" data-sid="${sid}" data-tid="${t.id}"
+        title="${locked ? 'Déverrouiller la table' : 'Marquer comme validée (lecture seule)'}"
+        class="w-8 h-7 rounded ${locked ? 'bg-emerald-100 hover:bg-emerald-200' : 'text-stone-400 grayscale opacity-60 hover:opacity-100 hover:grayscale-0 hover:bg-stone-100'}">✅</button>
+      <button data-act="tb-up" data-sid="${sid}" data-tid="${t.id}" title="Table vers le haut" class="w-7 h-7 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700">▲</button>
+      <button data-act="tb-dn" data-sid="${sid}" data-tid="${t.id}" title="Table vers le bas" class="w-7 h-7 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700">▼</button>
+      ${locked ? '' : `<button data-act="del-tb" data-sid="${sid}" data-tid="${t.id}" title="Supprimer la table" class="w-7 h-7 rounded text-stone-400 hover:bg-rose-50 hover:text-rose-600">🗑</button>`}
+    </div>
+    <div class="px-3 pb-2 pt-1 flex items-center gap-2 text-xs text-stone-500 flex-wrap">
+      <span class="font-medium text-stone-700">${n} personne${n > 1 ? 's' : ''}</span>
+      <span class="ml-auto inline-flex items-center gap-2">
+        <span class="inline-flex items-center gap-1"><span class="dot" style="background:var(--m)"></span>${gc.M}</span>
+        <span class="inline-flex items-center gap-1"><span class="dot" style="background:var(--f)"></span>${gc.F}</span>
+        ${gc['?'] ? `<span class="inline-flex items-center gap-1"><span class="dot" style="background:var(--u)"></span>${gc['?']}</span>` : ''}
+      </span>
+    </div>
+    <div class="tbl-rule mx-3"></div>
+    <div class="p-2.5 grid gap-1.5" ${locked ? '' : `data-dz data-sid="${sid}" data-tid="${t.id}"`} style="min-height:3rem">
+      ${chips || (locked
+        ? `<div class="text-xs text-stone-400 px-3 py-3 text-center">Table vide (validée)</div>`
+        : `<div class="text-xs text-stone-400 border border-dashed border-stone-300 rounded-lg px-3 py-3 text-center">Glisser des invités ici — ou toucher un invité puis cette table</div>`)}
+    </div>
+  </section>`;
+}
+
+function poolHTML(sid, sc){
+  const assigned = assignedSet(sc);
+  let remaining = 0;
+  const groupsHtml = state.groups.map(g => {
+    const units = g.units.filter(u => !assigned.has(u.id));
+    if (!units.length) return '';
+    remaining += units.reduce((n,u) => n + u.members.length, 0);
+    return `
+    <div>
+      <div class="flex items-center gap-1.5 text-xs font-medium text-stone-500 uppercase tracking-wide mb-1.5">
+        <span class="dot" style="background:${g.color}"></span>${esc(g.name)}
+        <span class="text-stone-400 normal-case font-normal">· ${units.reduce((n,u)=>n+u.members.length,0)}</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
+        ${units.map(u => chipHTML(sid, u, null)).join('')}
+      </div>
+    </div>`;
+  }).join('');
+  const empty = state.groups.length
+    ? `<div class="text-sm text-stone-400 pb-1">Tout le monde est placé 🎉</div>`
+    : `<div class="text-sm text-stone-500 pb-1 leading-relaxed">
+         La liste est vide. Ajoutez quelqu'un avec <strong>+ Personne</strong>,
+         ou chargez un fichier JSON avec <strong>Liste › Importer</strong>.
+       </div>`;
+  return `
+  <details class="bg-stone-50 rounded-xl border border-stone-200 ${SEL && SEL.sid === sid ? 'mv-target' : ''}" open
+           data-move data-sid="${sid}" data-tid="">
+    <summary class="cursor-pointer px-3 py-2.5 text-sm font-medium text-stone-700 select-none">
+      Invités à placer <span class="text-stone-400 font-normal">· ${remaining}</span>
+      ${SEL && SEL.sid === sid ? '<span class="text-xs text-[color:var(--gold)] font-normal"> — toucher ici pour retirer de table</span>' : ''}
+    </summary>
+    <div class="px-3 pb-3 space-y-3" data-dz data-sid="${sid}" data-tid="">
+      ${groupsHtml || empty}
+    </div>
+  </details>`;
+}
+
+function scenarioHTML(sc, i){
+  const sid = sc.id;
+  const total = totalGuests();
+  const placed = [...assignedSet(sc)].reduce((n,u) => n + (UMAP[u] ? unitSize(UMAP[u].unit) : 0), 0);
+  const editing = EDIT && EDIT.t === 'sc' && EDIT.sid === sid;
+  const name = editing
+    ? `<input data-edit value="${esc(sc.name)}" class="display text-xl font-semibold bg-white border border-stone-300 rounded px-1 w-44">`
+    : `<button data-act="ren-sc" data-sid="${sid}" class="display text-xl font-semibold hover:underline decoration-dotted text-left">${esc(sc.name)}</button>`;
+  const gtot = { M:0, F:0, '?':0 };
+  for (const gr of state.groups) for (const u of gr.units) for (const p of u.members) gtot[p.g]++;
+  const stat = (v, label, dot) => `
+    <div class="bg-white rounded-lg border border-stone-200 py-1.5 px-1">
+      <div class="text-base font-semibold leading-tight">${v}</div>
+      <div class="text-[10px] uppercase tracking-wide text-stone-400 flex items-center justify-center gap-1">${dot ? `<span class="dot" style="background:${dot};width:.5rem;height:.5rem"></span>` : ''}${label}</div>
+    </div>`;
+  const statsHTML = `
+    <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-center">
+      ${stat(sc.tables.length, 'Tables')}
+      ${stat(total, 'Personnes')}
+      ${stat(placed, 'Placés')}
+      ${stat(total - placed, 'À placer')}
+      ${stat(gtot.M, 'Hommes', 'var(--m)')}
+      ${stat(gtot.F + (gtot['?'] ? ` <span class="text-sm text-stone-400 font-normal">+${gtot['?']} ?</span>` : ''), 'Femmes', 'var(--f)')}
+    </div>`;
+  return `
+  <article class="rounded-2xl border border-stone-300 bg-white/60 shadow-sm overflow-hidden">
+    <div class="px-3 py-2.5 bg-white border-b border-stone-200 flex items-center gap-1.5 flex-wrap cursor-pointer" data-colzone data-sid="${sid}" title="Toucher pour ${sc.collapsed ? 'déplier' : 'replier'}">
+      <button data-act="col-sc" data-sid="${sid}" class="w-7 h-7 rounded text-stone-500 hover:bg-stone-100" title="${sc.collapsed ? 'Déplier' : 'Replier'}">${sc.collapsed ? '▸' : '▾'}</button>
+      ${name}
+      <span class="text-xs text-stone-500">${placed}/${total} placés · ${sc.tables.length} table${sc.tables.length > 1 ? 's' : ''}</span>
+      <span class="flex-1"></span>
+      <button data-act="dup-sc" data-sid="${sid}" class="text-xs px-2 py-1 rounded-lg border border-stone-300 hover:bg-stone-50">Dupliquer</button>
+      <button data-act="del-sc" data-sid="${sid}" class="text-xs px-2 py-1 rounded-lg border border-stone-300 text-rose-600 hover:bg-rose-50">Supprimer</button>
+    </div>
+    ${sc.collapsed ? '' : `
+    <div class="p-3 space-y-3">
+      ${statsHTML}
+      ${poolHTML(sid, sc)}
+      <div class="grid gap-3 md:grid-cols-2">
+        ${sc.tables.map((t, idx) => tableHTML(sid, sc, t, idx)).join('')}
+        <button data-act="add-tb" data-sid="${sid}"
+          class="rounded-xl border-2 border-dashed border-stone-300 text-stone-500 hover:border-[color:var(--accent)] hover:text-[color:var(--accent)] py-6 text-sm font-medium">
+          + Ajouter une table
+        </button>
+      </div>
+    </div>`}
+  </article>`;
+}
+
+function render(){
+  document.getElementById('totalCount').textContent = totalGuests() + ' invités';
+  const noGroups = !state.groups.length;
+  const addForm = ADDP ? `
+  <div class="bg-white rounded-2xl border border-stone-300 shadow-sm p-3 flex flex-wrap items-end gap-2">
+    <label class="flex flex-col text-xs text-stone-500 gap-1 flex-1 min-w-[10rem]">Nom
+      <input id="npName" class="border border-stone-300 rounded-lg px-2 py-1.5 text-sm" placeholder="Prénom (précision si doublon)">
+    </label>
+    <label class="flex flex-col text-xs text-stone-500 gap-1">Genre
+      <select id="npG" class="border border-stone-300 rounded-lg px-2 py-1.5 text-sm bg-white">
+        <option value="F">Femme</option><option value="M">Homme</option><option value="?">?</option>
+      </select>
+    </label>
+    <label class="flex flex-col text-xs text-stone-500 gap-1 flex-1 min-w-[10rem]">Partenaire <span class="normal-case">(optionnel — forme un couple)</span>
+      <input id="npName2" class="border border-stone-300 rounded-lg px-2 py-1.5 text-sm" placeholder="Laisser vide si seul·e">
+    </label>
+    <label class="flex flex-col text-xs text-stone-500 gap-1">Genre
+      <select id="npG2" class="border border-stone-300 rounded-lg px-2 py-1.5 text-sm bg-white">
+        <option value="M">Homme</option><option value="F">Femme</option><option value="?">?</option>
+      </select>
+    </label>
+    <label class="flex flex-col text-xs text-stone-500 gap-1">Groupe
+      <select id="npGroup" class="border border-stone-300 rounded-lg px-2 py-1.5 text-sm bg-white">
+        ${state.groups.map(g => `<option value="${g.id}" ${g.id === LASTG ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
+        <option value="__new__" ${noGroups ? 'selected' : ''}>➕ Nouveau groupe…</option>
+      </select>
+    </label>
+    <label id="npNewGroupWrap" class="flex-col text-xs text-stone-500 gap-1 min-w-[9rem] ${noGroups ? 'flex' : 'hidden'}">Nom du groupe
+      <input id="npNewGroup" class="border border-stone-300 rounded-lg px-2 py-1.5 text-sm" placeholder="ex. Famille, Amis, Enfants">
+    </label>
+    <button data-act="add-person-save" class="px-3 py-1.5 rounded-lg bg-[color:var(--accent)] text-white text-sm hover:opacity-90">Ajouter</button>
+    <button data-act="add-person-close" class="px-3 py-1.5 rounded-lg border border-stone-300 text-sm hover:bg-stone-50">Fermer</button>
+  </div>` : '';
+  app.innerHTML = addForm + (state.scenarios.length
+    ? state.scenarios.map(scenarioHTML).join('')
+    : `<div class="text-center text-stone-500 py-16">
+         <p class="display text-2xl mb-2">Aucune option pour l'instant</p>
+         <p class="text-sm">Touchez « + Option » en haut pour créer une première disposition.</p>
+       </div>`);
+  const bar = document.getElementById('selBar');
+  if (SEL && UMAP[SEL.u]){
+    bar.classList.remove('hidden');
+    document.getElementById('selText').textContent =
+      unitNames(UMAP[SEL.u].unit) + ' — touchez une table pour placer, ou « Invités à placer » pour retirer';
+  } else bar.classList.add('hidden');
+  const ed = app.querySelector('[data-edit]');
+  if (ed){ ed.focus(); ed.select(); }
+  persist();
+}
+
+/* ================= Actions ================= */
+function handleAct(b){
+  const d = b.dataset, sc = d.sid ? scById(d.sid) : null;
+  switch (d.act){
+    case 'add-sc': state.scenarios.push(newScenario()); break;
+    case 'ren-sc': EDIT = { t:'sc', sid: d.sid }; break;
+    case 'col-sc': sc.collapsed = !sc.collapsed; break;
+    case 'dup-sc': {
+      const copy = JSON.parse(JSON.stringify(sc));
+      copy.id = uid(); copy.name = sc.name + ' (copie)';
+      copy.tables.forEach(t => t.id = uid());
+      state.scenarios.splice(state.scenarios.indexOf(sc) + 1, 0, copy);
+      break;
+    }
+    case 'del-sc':
+      if (confirm('Supprimer « ' + sc.name + ' » ?'))
+        state.scenarios = state.scenarios.filter(s => s !== sc);
+      break;
+    case 'add-tb': sc.tables.push(newTable(sc)); break;
+    case 'ren-tb': EDIT = { t:'tb', sid: d.sid, tid: d.tid }; break;
+    case 'del-tb': {
+      const t = tbById(sc, d.tid);
+      if (!t.units.length || confirm('Supprimer « ' + t.name + ' » ? Les invités retournent dans la liste.'))
+        sc.tables = sc.tables.filter(x => x !== t);
+      break;
+    }
+    case 'tb-up': case 'tb-dn': {
+      const i = sc.tables.findIndex(t => t.id === d.tid);
+      const j = d.act === 'tb-up' ? i - 1 : i + 1;
+      if (j >= 0 && j < sc.tables.length)
+        [sc.tables[i], sc.tables[j]] = [sc.tables[j], sc.tables[i]];
+      break;
+    }
+    case 'lock-tb': {
+      const t = tbById(sc, d.tid);
+      t.locked = !t.locked;
+      if (t.locked){
+        if (SEL && SEL.sid === sc.id && t.units.includes(SEL.u)) SEL = null;
+        if (EDIT && EDIT.t === 'tb' && EDIT.sid === sc.id && EDIT.tid === t.id) EDIT = null;
+      }
+      break;
+    }
+    case 'u-up': case 'u-dn': {
+      const t = tbById(sc, d.tid);
+      const i = t.units.indexOf(d.u);
+      const j = d.act === 'u-up' ? i - 1 : i + 1;
+      if (j >= 0 && j < t.units.length)
+        [t.units[i], t.units[j]] = [t.units[j], t.units[i]];
+      break;
+    }
+    case 'u-out': removeUnit(sc, d.u); if (SEL && SEL.u === d.u) SEL = null; break;
+    case 'u-del': {
+      const e = UMAP[d.u];
+      if (!e) break;
+      if (!confirm('Supprimer « ' + unitNames(e.unit) + ' » de la liste ? Cette personne sera retirée de toutes les options.')) break;
+      e.group.units = e.group.units.filter(x => x.id !== d.u);
+      state.scenarios.forEach(s => removeUnit(s, d.u));
+      if (SEL && SEL.u === d.u) SEL = null;
+      reindex();
+      break;
+    }
+    case 'gender': {
+      const p = PMAP[d.p];
+      p.g = p.g === 'M' ? 'F' : p.g === 'F' ? '?' : 'M';
+      break;
+    }
+    case 'sel-x': SEL = null; break;
+    case 'add-person': {
+      ADDP = !ADDP; render();
+      const el = document.getElementById('npName'); if (el) el.focus();
+      return;
+    }
+    case 'add-person-close': ADDP = false; break;
+    case 'add-person-save': {
+      const nameEl = document.getElementById('npName');
+      const name = (nameEl.value || '').trim();
+      const name2 = (document.getElementById('npName2').value || '').trim();
+      const g = document.getElementById('npG').value;
+      const g2 = document.getElementById('npG2').value;
+      const gid = document.getElementById('npGroup').value;
+      if (!name){ nameEl.focus(); return; }
+      if (name2 && name2 === name){
+        alert('Les deux membres du couple ont le même nom — ajoutez une précision.');
+        return;
+      }
+      const dup = [name, name2].filter(Boolean).find(n => Object.values(PMAP).some(p => p.name === n));
+      if (dup){
+        alert('« ' + dup + ' » existe déjà dans la liste — ajoutez une précision pour les distinguer (ex. nom de famille).');
+        return;
+      }
+      let grp;
+      if (gid === '__new__'){
+        const gEl = document.getElementById('npNewGroup');
+        const gname = (gEl.value || '').trim();
+        if (!gname){ gEl.focus(); return; }
+        grp = state.groups.find(x => x.name.toLowerCase() === gname.toLowerCase()) || addGroup(gname);
+      } else {
+        grp = state.groups.find(x => x.id === gid) || state.groups[0] || addGroup('Invités');
+      }
+      const members = [{ id: uid(), name, g }];
+      if (name2) members.push({ id: uid(), name: name2, g: g2 });
+      grp.units.push({ id: uid(), members });
+      LASTG = grp.id;
+      reindex(); render();
+      const el = document.getElementById('npName'); if (el) el.focus();
+      return;
+    }
+    case 'reset-all':
+      if (confirm('Tout effacer (liste des personnes et options) ?\n\nAction irréversible — pensez à exporter avant.')){
+        state = buildInitial();
+        state.scenarios.push(newScenario());
+        SEL = null; EDIT = null; ADDP = false; LASTG = null;
+        reindex();
+        document.getElementById('eventName').value = '';
+      }
+      break;
+    case 'export-plan': doExportPlan(); return;
+    case 'export-list': doExportList(); return;
+    case 'import-plan': case 'import-list':
+      document.getElementById('importFile').click(); return;
+  }
+  render();
+}
+
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-edit]') || e.target.id === 'eventName') return;
+  const b = e.target.closest('[data-act]');
+  if (b){ e.preventDefault(); handleAct(b); return; }
+  const chip = e.target.closest('[data-chip]');
+  if (chip){
+    e.preventDefault();
+    SEL = (SEL && SEL.u === chip.dataset.u) ? null : { sid: chip.dataset.sid, u: chip.dataset.u };
+    render(); return;
+  }
+  if (SEL){
+    const tgt = e.target.closest('[data-move]');
+    if (tgt && tgt.dataset.sid === SEL.sid){
+      e.preventDefault();
+      moveUnit(scById(SEL.sid), SEL.u, tgt.dataset.tid || null, null);
+      SEL = null; render(); return;
+    }
+  }
+  const cz = e.target.closest('[data-colzone]');
+  if (cz){
+    const s = scById(cz.dataset.sid);
+    if (s){ s.collapsed = !s.collapsed; render(); }
+  }
+});
+
+/* Nom de l'événement (en-tête) + bascule « Nouveau groupe… » */
+document.addEventListener('input', e => {
+  if (e.target.id === 'eventName'){ state.title = e.target.value; persist(); }
+});
+document.addEventListener('change', e => {
+  if (e.target.id !== 'npGroup') return;
+  const wrap = document.getElementById('npNewGroupWrap');
+  const isNew = e.target.value === '__new__';
+  wrap.classList.toggle('hidden', !isNew);
+  wrap.classList.toggle('flex', isNew);
+  if (isNew) document.getElementById('npNewGroup').focus();
+});
+
+/* Renommage inline */
+function saveEdit(v){
+  if (!EDIT) return;
+  const sc = scById(EDIT.sid);
+  if (sc){
+    if (EDIT.t === 'sc') sc.name = v.trim() || sc.name;
+    else { const t = tbById(sc, EDIT.tid); if (t) t.name = v.trim() || t.name; }
+  }
+  EDIT = null; render();
+}
+document.addEventListener('focusout', e => { if (e.target.matches('[data-edit]')) saveEdit(e.target.value); });
+document.addEventListener('keydown', e => {
+  if ((e.target.id === 'npName' || e.target.id === 'npName2' || e.target.id === 'npNewGroup') && e.key === 'Enter'){
+    const b = document.querySelector('[data-act="add-person-save"]');
+    if (b) b.click();
+    return;
+  }
+  if (e.target.id === 'eventName' && e.key === 'Enter'){ e.target.blur(); return; }
+  if (e.target.matches('[data-edit]')){
+    if (e.key === 'Enter') e.target.blur();
+    if (e.key === 'Escape'){ EDIT = null; render(); }
+  }
+});
+
+/* Glisser-déposer (bureau) */
+document.addEventListener('dragstart', e => {
+  const c = e.target.closest('[data-chip]');
+  if (!c) return;
+  DRAG = { sid: c.dataset.sid, u: c.dataset.u };
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', c.dataset.u); } catch(_){}
+});
+document.addEventListener('dragover', e => {
+  const z = e.target.closest('[data-dz]');
+  if (z && DRAG && z.dataset.sid === DRAG.sid){
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    z.classList.add('dz-over');
+  }
+});
+document.addEventListener('dragleave', e => {
+  const z = e.target.closest('[data-dz]');
+  if (z) z.classList.remove('dz-over');
+});
+document.addEventListener('drop', e => {
+  const z = e.target.closest('[data-dz]');
+  if (!z || !DRAG || z.dataset.sid !== DRAG.sid){ DRAG = null; return; }
+  e.preventDefault();
+  const chip = e.target.closest('[data-chip]');
+  const before = (chip && z.dataset.tid && chip.dataset.u !== DRAG.u) ? chip.dataset.u : null;
+  moveUnit(scById(DRAG.sid), DRAG.u, z.dataset.tid || null, before);
+  DRAG = null; SEL = null; render();
+});
+document.addEventListener('dragend', () => {
+  DRAG = null;
+  document.querySelectorAll('.dz-over').forEach(el => el.classList.remove('dz-over'));
+});
+
+/* ================= Export / Import JSON ================= */
+function download(filename, obj){
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+const fname = base => base + (slug(state.title) ? '-' + slug(state.title) : '') + '.json';
+function doExportPlan(){
+  download(fname('plan-de-tables'), { type: 'plan-de-tables', ...state });
+}
+function doExportList(){
+  download(fname('liste-invites'), {
+    type: 'liste-invites',
+    groups: state.groups.map(g => ({
+      name: g.name,
+      units: g.units.map(u => u.members.map(p => [p.name, p.g]))
+    }))
+  });
+}
+const unitKey = u => u.members.map(p => p.name).sort().join('|');
+
+/* Import d'un plan : fusion sur la liste de personnes actuellement chargée
+   (correspondance par nom). Si la liste locale est vide, on adopte celle du plan. */
+function importState(data){
+  if (!state.groups.length && Array.isArray(data.groups) && data.groups.length){
+    state.groups = data.groups.map((g, i) => ({
+      id: uid(),
+      name: g.name || ('Groupe ' + (i + 1)),
+      color: g.color || GCOLORS[i % GCOLORS.length],
+      units: (g.units || []).map(u => ({
+        id: uid(),
+        members: (u.members || []).map(p => ({
+          id: uid(),
+          name: String(p.name || '').trim(),
+          g: (p.g === 'M' || p.g === 'F') ? p.g : '?'
+        })).filter(p => p.name)
+      })).filter(u => u.members.length)
+    }));
+    if (typeof data.title === 'string' && !state.title){
+      state.title = data.title;
+      document.getElementById('eventName').value = data.title;
+    }
+    reindex();
+  }
+  const baseUnitByKey = {}, basePersonByName = {};
+  for (const g of state.groups) for (const u of g.units){
+    baseUnitByKey[unitKey(u)] = u;
+    for (const p of u.members) basePersonByName[p.name] = p;
+  }
+  const unitMap = {}, dropped = [];
+  for (const g of data.groups) for (const u of (g.units || [])){
+    const key = (u.members || []).map(p => p.name).sort().join('|');
+    const bu = baseUnitByKey[key];
+    if (bu){
+      unitMap[u.id] = bu.id;
+      for (const p of u.members){
+        const bp = basePersonByName[p.name];
+        if (bp && bp.g === '?' && (p.g === 'M' || p.g === 'F')) bp.g = p.g;
+      }
+    } else dropped.push((u.members || []).map(p => p.name).join(' & '));
+  }
+  state.scenarios = data.scenarios.map(sc => ({
+    id: uid(), name: sc.name || 'Option', collapsed: !!sc.collapsed,
+    tables: (sc.tables || []).map(t => ({
+      id: uid(), name: t.name || 'Table', locked: !!t.locked,
+      units: (t.units || []).map(u => unitMap[u]).filter(Boolean)
+    }))
+  }));
+  SEL = null; EDIT = null;
+  reindex(); render();
+  if (dropped.length)
+    alert("Invités du plan importé absents de la liste actuelle (ignorés) : " + dropped.join(', '));
+}
+
+/* Import d'une liste de personnes : remplace la liste, conserve les placements existants par nom */
+function importList(data){
+  const groupsIn = data.groups;
+  if (!Array.isArray(groupsIn) || !groupsIn.length) throw new Error('format');
+  const normMembers = u => {
+    const arr = Array.isArray(u) ? u : (u.members || []);
+    return arr.map(m => Array.isArray(m)
+      ? { id: uid(), name: String(m[0]).trim(), g: (m[1] === 'M' || m[1] === 'F') ? m[1] : '?' }
+      : { id: uid(), name: String(m.name).trim(), g: (m.g === 'M' || m.g === 'F') ? m.g : '?' }
+    ).filter(p => p.name);
+  };
+  const newGroups = groupsIn.map((g, i) => ({
+    id: uid(), name: g.name || ('Groupe ' + (i + 1)), color: GCOLORS[i % GCOLORS.length],
+    units: (g.units || []).map(mm => ({ id: uid(), members: normMembers(mm) })).filter(u => u.members.length)
+  }));
+  const newByKey = {};
+  for (const g of newGroups) for (const u of g.units) newByKey[unitKey(u)] = u.id;
+  const dropped = [];
+  for (const sc of state.scenarios) for (const t of sc.tables){
+    t.units = t.units.map(old => {
+      const e = UMAP[old]; if (!e) return null;
+      const nid = newByKey[unitKey(e.unit)];
+      if (!nid) dropped.push(unitNames(e.unit));
+      return nid || null;
+    }).filter(Boolean);
+  }
+  state.groups = newGroups;
+  SEL = null; EDIT = null; LASTG = null;
+  reindex(); render();
+  if (dropped.length)
+    alert("Personnes placées mais absentes de la nouvelle liste (retirées des tables) : " + [...new Set(dropped)].join(', '));
+}
+
+document.getElementById('importFile').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const data = JSON.parse(r.result);
+      if (data && Array.isArray(data.scenarios) && Array.isArray(data.groups)) importState(data);
+      else if (data && Array.isArray(data.groups)) importList(data);
+      else throw new Error('format');
+    } catch(_){
+      alert("Ce fichier n'est ni un plan ni une liste de personnes valide.");
+    }
+    e.target.value = '';
+  };
+  r.readAsText(f);
+});
+
+/* ================= Démarrage ================= */
+const saved = loadPersisted();
+if (saved) state = saved;
+document.getElementById('eventName').value = state.title || '';
+reindex();
+if (!state.scenarios.length) state.scenarios.push(newScenario());
+render();
+</script>
+</body>
+</html>
