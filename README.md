@@ -16,7 +16,7 @@ Faire un plan de table, c'est essayer une disposition, se rendre compte que ça 
 
 Cet outil part de trois constats :
 
-- **Les couples se déplacent ensemble.** Un couple est une *unité* indivisible : on le glisse d'un bloc, jamais membre par membre.
+- **Les couples se déplacent ensemble.** Un couple est une *unité* : on le glisse d'un bloc. On le compose ou on le défait quand on veut, en glissant les personnes.
 - **On veut plusieurs propositions en parallèle.** Chaque « option » est un plan complet et indépendant, partageant la même liste d'invités. On les duplique, on les compare, on jette.
 - **Certaines tables sont acquises.** Une table validée se verrouille : plus de déplacement accidentel pendant qu'on remue le reste.
 
@@ -25,15 +25,16 @@ Cet outil part de trois constats :
 | | |
 |---|---|
 | **Options multiples** | Autant de dispositions que voulu sur la même liste d'invités. Duplication en un clic pour partir d'une variante. |
-| **Couples** | Deux personnes forment une unité qui se déplace toujours ensemble (badge `×2`). |
+| **Couples** | Deux personnes forment une unité qui se déplace toujours ensemble (badge `×2`). Se compose et se défait par glisser-déposer, à tout moment. |
 | **Groupes colorés** | Famille, amis, collègues… chaque groupe a sa couleur, visible d'un coup d'œil sur chaque étiquette. |
-| **Glisser-déposer** | À la souris sur ordinateur, entre tables **et** pour réordonner à l'intérieur d'une table (un trait indique où l'invité va s'insérer) ; sur mobile/tablette, on touche un invité puis la table de destination. |
+| **Glisser-déposer** | À la souris sur ordinateur : entre tables, pour réordonner à l'intérieur d'une table, et pour former ou défaire un couple. Un repère montre ce qui va se passer avant de lâcher. Sur mobile/tablette, on touche un invité puis la table de destination. |
 | **Renommage des personnes** | Bouton ✎ (ou double-clic sur le nom) à tout moment, y compris pour quelqu'un déjà placé : le placement est conservé dans toutes les options. |
 | **Tables verrouillables** | Une table « validée » passe en lecture seule et en vert. |
 | **Compteurs en direct** | Par table : nombre de personnes et répartition hommes/femmes. Globalement : placés / à placer. |
-| **Genre modifiable** | Un clic sur la pastille de couleur fait défiler Homme → Femme → `?`. |
+| **Genre modifiable** | Clic sur la pastille de couleur, ou clic droit sur la ligne de la personne : Homme → Femme → `?`. |
 | **Sauvegarde automatique** | L'état est conservé dans le navigateur (`localStorage`) : fermez l'onglet, retrouvez votre travail. |
 | **Import / export JSON** | Deux formats distincts (voir plus bas) pour sauvegarder, partager, ou éditer la liste à la main. |
+| **Export Markdown** | Le plan complet, la liste des invités, ou une table isolée — en texte lisible, à imprimer, coller dans un document ou envoyer au traiteur. |
 | **Hors-ligne après chargement** | Une fois la page chargée, aucune requête réseau n'est faite. |
 
 ## Utilisation
@@ -64,21 +65,37 @@ L'application démarre **vide**, avec une première option prête à l'emploi.
 3. **Placez les invités.** Glissez-les depuis « Invités à placer », ou touchez un invité puis la table (pratique sur mobile).
 4. **Comparez.** Bouton **+ Option** pour une seconde disposition, ou **Dupliquer** pour partir de l'existante.
 5. **Sauvegardez.** Le navigateur retient tout automatiquement, mais exportez le JSON avant les grosses manœuvres : c'est votre filet de sécurité.
+6. **Partagez.** Quand le plan est arrêté, **Plan › Markdown** (ou **⬇** sur une table) produit un fichier texte à imprimer, à coller dans un document ou à envoyer au traiteur.
 
 ### Raccourcis et gestes
 
-- **Clic sur une pastille de couleur** → change le genre de la personne (H → F → `?`).
+- **Clic sur une pastille de couleur**, ou **clic droit sur la ligne d'une personne** → fait défiler son genre (H → F → `?`).
 - **Clic sur un nom de table ou d'option** → renommage sur place (`Entrée` valide, `Échap` annule).
 - **✎ à côté d'un nom, ou double-clic sur ce nom** → renommage de la personne, même si elle est déjà assignée à une table (les placements suivent). Un nom déjà utilisé est refusé, pour garder l'import/export cohérent.
-- **Glisser une étiquette sur une autre, dans une table** → réordonne les invités ; le trait vert montre si l'insertion se fera au-dessus ou en dessous.
 - **Clic sur l'en-tête d'une option** → replie / déplie.
 - **✅ sur une table** → verrouille (validée) / déverrouille.
+- **⬇ sur une table** → exporte cette table seule en Markdown.
 - **✕ sur une étiquette dans « Invités à placer »** → supprime la personne de la liste, partout.
 - **Nom de l'événement** (en-tête) → sert à nommer les fichiers exportés.
 
+### Glisser-déposer : trois gestes sur la même étiquette
+
+Sur ordinateur, ce qu'on obtient dépend de l'endroit exact où on lâche. Un repère l'annonce toujours avant :
+
+| Geste | Repère | Effet |
+|---|---|---|
+| Lâcher sur le **bord haut ou bas** d'une étiquette, dans une table | trait vert au-dessus / en dessous | Réordonne les invités de la table |
+| Lâcher au **milieu** d'une étiquette compatible | cadre doré | **Forme un couple** — les deux personnes ne feront plus qu'une unité |
+| Tirer la poignée **⠿** d'un membre de couple ailleurs | selon la cible | **Défait le couple** : la personne redevient seule, et atterrit là où on la lâche (table, vivier, ou en couple avec quelqu'un d'autre) |
+
+- Un couple compte deux personnes : le cadre doré n'apparaît que si la fusion donne bien un duo (personne seule + personne seule).
+- Le couple formé hérite du **groupe et de la place** de l'étiquette d'accueil.
+- Composer ou défaire un couple modifie la **liste**, donc **toutes les options** — pas seulement celle où on manipule. En séparant quelqu'un, la personne garde sa place à table dans chaque option.
+- Sans souris : le bouton **⠿** répond aussi au simple clic et sépare la personne sur place. Former un couple demande en revanche un glisser-déposer, ou le champ *Partenaire* du formulaire **+ Personne**.
+
 ## Formats de fichiers
 
-L'outil manipule deux formats. À l'import, le type est **détecté automatiquement** : peu importe le bouton utilisé.
+Deux formats JSON pour sauvegarder et recharger, un export Markdown pour lire et partager. À l'import, le type est **détecté automatiquement** : peu importe le bouton utilisé.
 
 ### Liste d'invités — `liste-invites*.json`
 
@@ -107,6 +124,29 @@ L'état intégral : nom de l'événement, liste des personnes, options, tables, 
 
 À l'import : si votre liste locale est vide, celle du plan est adoptée telle quelle. Sinon le plan est **fusionné sur la liste courante** par correspondance de noms — ce qui permet de recharger un ancien plan sur une liste retravaillée. Les invités du plan absents de la liste courante sont ignorés, avec un avertissement.
 
+### Markdown — `*.md`
+
+Trois exports, tous en **sens unique** : ils servent à lire, imprimer ou partager, pas à recharger l'application. Pour cela, gardez le JSON.
+
+| Bouton | Fichier | Contenu |
+|---|---|---|
+| **Plan › Markdown** | `plan-de-tables-<événement>.md` | Toutes les options, leurs tables, la composition de chacune et les invités restant à placer |
+| **Liste › Markdown** | `liste-invites-<événement>.md` | Les groupes, leurs unités et le genre de chacun |
+| **⬇** sur une table | `table-<nom>-<événement>.md` | Cette table seule : effectif, répartition H/F, et qui y est assis avec son groupe |
+
+Un `.md` est un fichier texte : il se lit tel quel dans n'importe quel éditeur, et se met en forme dans les outils qui comprennent Markdown (Obsidian, GitHub, Notion, VS Code…).
+
+```markdown
+# Mariage Claire & David — Option 1
+
+## Table des amis
+
+8 personnes — 4 hommes, 4 femmes
+
+- Julie & Antoine _(couple)_ — Amis
+- Margot — Amis
+```
+
 > ⚠️ **Les noms servent de clé.** Deux personnes ne peuvent pas porter exactement le même nom : ajoutez une précision (`Marie Dupont`, `Marie (cousine)`). L'application refuse les doublons à la saisie.
 
 ## Utilisation hors-ligne
@@ -118,11 +158,11 @@ Pour un fichier réellement autonome — utile le jour J, dans une salle sans wi
 
 ## Confidentialité
 
-Une liste d'invités, c'est une liste de personnes réelles. Rien n'est envoyé nulle part : pas d'analytics, pas de télémétrie, pas d'appel réseau après le chargement de la page. Les données vivent dans le `localStorage` du navigateur et dans les fichiers JSON que vous exportez vous-même. Le bouton **Réinitialiser** efface tout.
+Une liste d'invités, c'est une liste de personnes réelles. Rien n'est envoyé nulle part : pas d'analytics, pas de télémétrie, pas d'appel réseau après le chargement de la page. Les données vivent dans le `localStorage` du navigateur et dans les fichiers (JSON ou Markdown) que vous exportez vous-même. Le bouton **Réinitialiser** efface tout.
 
 ## Technique
 
-Un fichier, ~700 lignes, sans étape de build :
+Un fichier, ~930 lignes, sans étape de build :
 
 - HTML + CSS + JavaScript standard, aucune dépendance à installer
 - [Tailwind CSS](https://tailwindcss.com/) via CDN pour la mise en forme

@@ -18,9 +18,10 @@ body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-
 .chip:active{cursor:grabbing;}
 .chip.sel{outline:2px solid var(--accent);outline-offset:1px;background:#eef2ec;}
 .dz-over{background:#e8efe8 !important;outline:2px dashed var(--accent);outline-offset:-2px;}
-.chip.dragging{opacity:.4;}
+.dragging{opacity:.4;}
 .chip.ins-before{box-shadow:0 -3px 0 -1px var(--accent);}
 .chip.ins-after{box-shadow:0 3px 0 -1px var(--accent);}
+.chip.mrg{outline:2px solid var(--gold);outline-offset:2px;background:#fbf6ea;}
 .mv-target{outline:2px dashed var(--gold);outline-offset:2px;animation:pulse 1.4s ease-in-out infinite;}
 @keyframes pulse{50%{outline-color:#e2c98a;}}
 @media (prefers-reduced-motion: reduce){.mv-target{animation:none;}}
@@ -46,13 +47,15 @@ input[data-edit]{font:inherit;}
     <span class="flex-1"></span>
     <span class="inline-flex items-center rounded-lg border border-stone-300 bg-white overflow-hidden text-sm">
       <span class="px-2 py-1.5 text-stone-400 text-xs uppercase tracking-wide border-r border-stone-200">Plan</span>
-      <button data-act="export-plan" title="Exporter le plan complet (options, tables, placements)" class="px-2.5 py-1.5 hover:bg-stone-50">Exporter</button>
-      <button data-act="import-plan" title="Importer un plan exporté" class="px-2.5 py-1.5 hover:bg-stone-50 border-l border-stone-200">Importer</button>
+      <button data-act="export-plan" title="Exporter le plan complet en JSON (options, tables, placements) — ré-importable" class="px-2.5 py-1.5 hover:bg-stone-50">JSON</button>
+      <button data-act="export-plan-md" title="Exporter le plan en Markdown (texte lisible, à imprimer ou partager)" class="px-2.5 py-1.5 hover:bg-stone-50 border-l border-stone-200">Markdown</button>
+      <button data-act="import-plan" title="Importer un plan exporté (JSON)" class="px-2.5 py-1.5 hover:bg-stone-50 border-l border-stone-200">Importer</button>
     </span>
     <span class="inline-flex items-center rounded-lg border border-stone-300 bg-white overflow-hidden text-sm">
       <span class="px-2 py-1.5 text-stone-400 text-xs uppercase tracking-wide border-r border-stone-200">Liste</span>
-      <button data-act="export-list" title="Exporter la liste des personnes (groupes, couples, genres)" class="px-2.5 py-1.5 hover:bg-stone-50">Exporter</button>
-      <button data-act="import-list" title="Importer une liste de personnes (remplace la liste actuelle, les placements sont conservés par nom)" class="px-2.5 py-1.5 hover:bg-stone-50 border-l border-stone-200">Importer</button>
+      <button data-act="export-list" title="Exporter la liste des personnes en JSON (groupes, couples, genres) — ré-importable" class="px-2.5 py-1.5 hover:bg-stone-50">JSON</button>
+      <button data-act="export-list-md" title="Exporter la liste des personnes en Markdown (texte lisible)" class="px-2.5 py-1.5 hover:bg-stone-50 border-l border-stone-200">Markdown</button>
+      <button data-act="import-list" title="Importer une liste de personnes en JSON (remplace la liste actuelle, les placements sont conservés par nom)" class="px-2.5 py-1.5 hover:bg-stone-50 border-l border-stone-200">Importer</button>
     </span>
     <button data-act="add-person" class="text-sm px-3 py-1.5 rounded-lg border border-stone-300 bg-white hover:bg-stone-50">+ Personne</button>
     <button data-act="add-sc" class="text-sm px-3 py-1.5 rounded-lg bg-[color:var(--accent)] text-white hover:opacity-90">+ Option</button>
@@ -84,18 +87,18 @@ function buildInitial(){
 }
 
 let state = buildInitial();
-let UMAP = {}, PMAP = {};
+let UMAP = {}, PMAP = {}, PUMAP = {};
 let SEL = null;   // {sid, u}
-let DRAG = null;  // {sid, u}
+let DRAG = null;  // {sid, u, p} — p renseigné quand on tire une personne hors d'un couple
 let EDIT = null;  // {t:'sc'|'tb', sid, tid}
 let ADDP = false; // formulaire « + Personne » ouvert
 let LASTG = null; // dernier groupe utilisé pour l'ajout
 
 function reindex(){
-  UMAP = {}; PMAP = {};
+  UMAP = {}; PMAP = {}; PUMAP = {};
   for (const g of state.groups) for (const u of g.units){
     UMAP[u.id] = { unit: u, group: g };
-    for (const p of u.members) PMAP[p.id] = p;
+    for (const p of u.members){ PMAP[p.id] = p; PUMAP[p.id] = { unit: u, group: g }; }
   }
 }
 
@@ -148,6 +151,42 @@ function moveUnit(sc, u, tid, before){
   }
   t.units.push(u);
 }
+/* Couples = unités à deux membres. Les deux opérations ci-dessous transforment la
+   liste elle-même : elles valent donc pour toutes les options, pas seulement celle
+   où on manipule. */
+
+/* Sort une personne de son couple vers une unité à elle. Elle garde sa place à
+   table dans chaque option (l'unité naît juste après celle d'origine).
+   Renvoie l'id de la nouvelle unité. */
+function splitMember(pid){
+  const e = PUMAP[pid];
+  if (!e) return null;
+  if (e.unit.members.length < 2) return e.unit.id;
+  const p = e.unit.members.find(x => x.id === pid);
+  const src = e.unit.id;
+  e.unit.members = e.unit.members.filter(x => x.id !== pid);
+  const nu = { id: uid(), members: [p] };
+  e.group.units.splice(e.group.units.indexOf(e.unit) + 1, 0, nu);
+  for (const s of state.scenarios) for (const t of s.tables){
+    const i = t.units.indexOf(src);
+    if (i >= 0) t.units.splice(i + 1, 0, nu.id);
+  }
+  reindex();
+  return nu.id;
+}
+
+/* Fusionne l'unité tirée dans l'unité cible : le couple hérite du groupe et des
+   placements de la cible. */
+function mergeUnits(srcId, tgtId){
+  const a = UMAP[srcId], b = UMAP[tgtId];
+  if (!a || !b || srcId === tgtId) return;
+  b.unit.members.push(...a.unit.members);
+  a.group.units = a.group.units.filter(x => x.id !== srcId);
+  state.scenarios.forEach(s => removeUnit(s, srcId));
+  if (SEL && SEL.u === srcId) SEL = null;
+  reindex();
+}
+
 function newScenario(){
   const n = state.scenarios.length + 1;
   return { id: uid(), name: 'Option ' + n, collapsed:false, tables: [] };
@@ -174,23 +213,27 @@ function chipHTML(sid, u, ctx){ // ctx: {tid, locked} si dans une table
   const editingP = p => EDIT && EDIT.t === 'p' && EDIT.pid === p.id && EDIT.k === ekey;
   const editingHere = !locked && u.members.some(editingP);
   const selected = !locked && SEL && SEL.sid === sid && SEL.u === u.id;
+  const isCouple = u.members.length > 1;
   const members = u.members.map(p => editingHere && editingP(p)
     ? `<span class="flex items-center gap-1.5 min-w-0">
         <span class="dot" style="background:${GDOT[p.g]}"></span>
         <input data-edit value="${esc(p.name)}" maxlength="60"
                class="text-sm bg-white border border-stone-300 rounded px-1 py-0.5 w-32 min-w-0">
       </span>`
-    : `<span class="flex items-center gap-1.5 min-w-0">
+    : `<span class="flex items-center gap-1.5 min-w-0" ${locked ? '' : `data-mrow="${p.id}"`}>
       ${locked
         ? `<span class="dot" style="background:${GDOT[p.g]}"></span>`
-        : `<button data-act="gender" data-p="${p.id}" title="Genre : ${p.g} (toucher pour changer)"
+        : `<button data-act="gender" data-p="${p.id}" title="Genre : ${p.g} (toucher, ou clic droit sur la ligne, pour changer)"
             class="dot" style="background:${GDOT[p.g]}"></button>`}
       <span class="truncate" ${locked ? '' : `data-pname="${p.id}" data-k="${ekey}"`}>${esc(p.name)}</span>
       ${locked ? '' : `<button data-act="ren-p" data-p="${p.id}" data-k="${ekey}"
             title="Renommer « ${esc(p.name)} » (ou double-clic sur le nom)"
             class="flex-none w-6 h-6 rounded text-[11px] leading-none text-stone-300 hover:bg-stone-100 hover:text-stone-700">✎</button>`}
+      ${locked || !isCouple ? '' : `<button data-act="p-split" data-p="${p.id}" data-grip draggable="true"
+            title="Séparer « ${esc(p.name)} » du couple — ou la glisser ailleurs (table, vivier, autre personne)"
+            class="flex-none w-6 h-6 rounded text-[11px] leading-none text-stone-300 select-none cursor-grab hover:bg-stone-100 hover:text-stone-700">⠿</button>`}
     </span>`).join('');
-  const couple = u.members.length > 1
+  const couple = isCouple
     ? `<span class="text-[10px] text-stone-400 border border-stone-200 rounded px-1">×2</span>` : '';
   const ctrls = (ctx && !locked) ? `
     <span class="flex items-center gap-0.5 ml-auto flex-none text-stone-400">
@@ -204,6 +247,7 @@ function chipHTML(sid, u, ctx){ // ctx: {tid, locked} si dans une table
     </span>`;
   return `
   <div class="chip flex items-center gap-2 bg-white rounded-lg border border-stone-200 px-2 py-1.5 text-sm ${selected ? 'sel' : ''} ${locked || editingHere ? '!cursor-default' : ''}"
+       ${locked || isCouple ? '' : 'title="Glisser sur une autre personne seule pour former un couple"'}
        ${locked ? '' : `${editingHere ? '' : 'draggable="true"'} tabindex="0" data-chip data-sid="${sid}" data-u="${u.id}"`}
        style="border-left:4px solid ${g.color}">
     <span class="flex flex-col gap-0.5 min-w-0">${members}</span>
@@ -231,6 +275,9 @@ function tableHTML(sid, sc, t, idx){
       <button data-act="lock-tb" data-sid="${sid}" data-tid="${t.id}"
         title="${locked ? 'Déverrouiller la table' : 'Marquer comme validée (lecture seule)'}"
         class="w-8 h-7 rounded ${locked ? 'bg-emerald-100 hover:bg-emerald-200' : 'text-stone-400 grayscale opacity-60 hover:opacity-100 hover:grayscale-0 hover:bg-stone-100'}">✅</button>
+      <button data-act="export-tb" data-sid="${sid}" data-tid="${t.id}"
+        title="Exporter cette table en Markdown (texte lisible : à imprimer, coller dans un document, envoyer au traiteur…)"
+        class="w-7 h-7 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700">⬇</button>
       <button data-act="tb-up" data-sid="${sid}" data-tid="${t.id}" title="Table vers le haut" class="w-7 h-7 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700">▲</button>
       <button data-act="tb-dn" data-sid="${sid}" data-tid="${t.id}" title="Table vers le bas" class="w-7 h-7 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700">▼</button>
       ${locked ? '' : `<button data-act="del-tb" data-sid="${sid}" data-tid="${t.id}" title="Supprimer la table" class="w-7 h-7 rounded text-stone-400 hover:bg-rose-50 hover:text-rose-600">🗑</button>`}
@@ -389,6 +436,10 @@ function render(){
 }
 
 /* ================= Actions ================= */
+function cycleGender(pid){
+  const p = PMAP[pid];
+  if (p) p.g = p.g === 'M' ? 'F' : p.g === 'F' ? '?' : 'M';
+}
 function handleAct(b){
   const d = b.dataset, sc = d.sid ? scById(d.sid) : null;
   switch (d.act){
@@ -450,11 +501,8 @@ function handleAct(b){
       break;
     }
     case 'ren-p': EDIT = { t:'p', pid: d.p, k: d.k }; break;
-    case 'gender': {
-      const p = PMAP[d.p];
-      p.g = p.g === 'M' ? 'F' : p.g === 'F' ? '?' : 'M';
-      break;
-    }
+    case 'p-split': splitMember(d.p); break;
+    case 'gender': cycleGender(d.p); break;
     case 'sel-x': SEL = null; break;
     case 'add-person': {
       ADDP = !ADDP; render();
@@ -507,6 +555,9 @@ function handleAct(b){
       break;
     case 'export-plan': doExportPlan(); return;
     case 'export-list': doExportList(); return;
+    case 'export-plan-md': doExportPlanMD(); return;
+    case 'export-list-md': doExportListMD(); return;
+    case 'export-tb': { const t = tbById(sc, d.tid); if (t) doExportTableMD(sc, t); return; }
     case 'import-plan': case 'import-list':
       document.getElementById('importFile').click(); return;
   }
@@ -580,6 +631,14 @@ function saveEdit(v){
   EDIT = null; render();
 }
 document.addEventListener('focusout', e => { if (e.target.matches('[data-edit]')) saveEdit(e.target.value); });
+/* Clic droit sur la ligne d'une personne = fait défiler son genre (H → F → ?) */
+document.addEventListener('contextmenu', e => {
+  const row = e.target.closest('[data-mrow]');
+  if (!row) return;
+  e.preventDefault();
+  cycleGender(row.dataset.mrow);
+  render();
+});
 /* Double-clic sur un nom = renommer (raccourci bureau, équivalent du bouton ✎) */
 document.addEventListener('dblclick', e => {
   const n = e.target.closest('[data-pname]');
@@ -602,22 +661,29 @@ document.addEventListener('keydown', e => {
   }
 });
 
-/* Glisser-déposer (bureau) : déplacer entre tables ET réordonner dans une table.
-   DROPT mémorise le repère d'insertion survolé ({u, after}) pour que le dépôt
-   suive exactement le trait affiché. */
+/* Glisser-déposer (bureau). Trois gestes sur la même étiquette :
+   – bord haut / bas d'une étiquette de table → réordonner ;
+   – milieu d'une étiquette compatible      → former un couple ;
+   – ⠿ d'un membre de couple tiré ailleurs  → le séparer (et éventuellement le réapparier).
+   DROPT mémorise ce que le repère affiché promet, pour que le dépôt fasse exactement ça. */
 let DROPT = null, MZ = null, MC = null;
 function clearMarks(){
   if (MZ){ MZ.classList.remove('dz-over'); MZ = null; }
-  if (MC){ MC.classList.remove('ins-before','ins-after'); MC = null; }
+  if (MC){ MC.classList.remove('ins-before','ins-after','mrg'); MC = null; }
   DROPT = null;
 }
 document.addEventListener('dragstart', e => {
   const c = e.target.closest('[data-chip]');
   if (!c) return;
-  DRAG = { sid: c.dataset.sid, u: c.dataset.u };
-  c.classList.add('dragging');
+  const grip = e.target.closest('[data-grip]');
+  DRAG = { sid: c.dataset.sid, u: c.dataset.u, p: grip ? grip.dataset.p : null };
+  const row = grip ? grip.closest('[data-mrow]') : null;
+  (row || c).classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
-  try { e.dataTransfer.setData('text/plain', c.dataset.u); } catch(_){}
+  try {
+    e.dataTransfer.setData('text/plain', DRAG.p || DRAG.u);
+    if (row) e.dataTransfer.setDragImage(row, 8, 8);
+  } catch(_){}
 });
 document.addEventListener('dragover', e => {
   clearMarks();
@@ -625,30 +691,44 @@ document.addEventListener('dragover', e => {
   if (!z || !DRAG || z.dataset.sid !== DRAG.sid) return;
   e.preventDefault(); e.dataTransfer.dropEffect = 'move';
   z.classList.add('dz-over'); MZ = z;
-  if (!z.dataset.tid) return; // vivier : pas d'ordre à tenir
   const chip = e.target.closest('[data-chip]');
-  if (!chip || chip.dataset.u === DRAG.u) return;
+  if (!chip) return;
+  const tgt = UMAP[chip.dataset.u];
+  const sameUnit = chip.dataset.u === DRAG.u;
+  const dragged = DRAG.p ? 1 : (UMAP[DRAG.u] ? unitSize(UMAP[DRAG.u].unit) : 1);
+  const canMerge = !sameUnit && tgt && tgt.unit.members.length + dragged === 2; // un couple = deux personnes
+  const mark = (cls, dropt) => { chip.classList.add(cls); MC = chip; DROPT = dropt; };
+  if (!z.dataset.tid){ // vivier : pas d'ordre à tenir, toute l'étiquette sert à apparier
+    if (canMerge) mark('mrg', { mode:'merge', u: chip.dataset.u });
+    return;
+  }
+  if (sameUnit) return;
   const r = chip.getBoundingClientRect();
-  const after = (e.clientY - r.top) > r.height / 2;
-  chip.classList.add(after ? 'ins-after' : 'ins-before'); MC = chip;
-  DROPT = { u: chip.dataset.u, after };
+  const rel = (e.clientY - r.top) / r.height;
+  if (canMerge && rel > 0.3 && rel < 0.7) mark('mrg', { mode:'merge', u: chip.dataset.u });
+  else mark(rel >= 0.5 ? 'ins-after' : 'ins-before', { mode:'ins', u: chip.dataset.u, after: rel >= 0.5 });
 });
 document.addEventListener('drop', e => {
   const z = e.target.closest('[data-dz]');
   if (!z || !DRAG || z.dataset.sid !== DRAG.sid){ clearMarks(); DRAG = null; return; }
   e.preventDefault();
-  const sc = scById(DRAG.sid);
-  let before = null;
-  if (z.dataset.tid && DROPT){
-    const t = tbById(sc, z.dataset.tid);
-    if (t){
-      const rest = t.units.filter(x => x !== DRAG.u);
-      const i = rest.indexOf(DROPT.u);
-      before = DROPT.after ? (rest[i + 1] || null) : DROPT.u; // en dernier → simple ajout en fin
-    }
-  }
+  const sc = scById(DRAG.sid), tgt = DROPT;
   clearMarks();
-  moveUnit(sc, DRAG.u, z.dataset.tid || null, before);
+  const u = DRAG.p ? splitMember(DRAG.p) : DRAG.u; // sortir la personne du couple d'abord
+  if (tgt && tgt.mode === 'merge'){
+    mergeUnits(u, tgt.u); // le couple garde la table et le groupe de la cible
+  } else {
+    let before = null;
+    if (z.dataset.tid && tgt){
+      const t = tbById(sc, z.dataset.tid);
+      if (t){
+        const rest = t.units.filter(x => x !== u);
+        const i = rest.indexOf(tgt.u);
+        before = tgt.after ? (rest[i + 1] || null) : tgt.u; // en dernier → simple ajout en fin
+      }
+    }
+    moveUnit(sc, u, z.dataset.tid || null, before);
+  }
   DRAG = null; SEL = null; render();
 });
 document.addEventListener('dragend', () => {
@@ -657,17 +737,76 @@ document.addEventListener('dragend', () => {
 });
 
 /* ================= Export / Import JSON ================= */
-function download(filename, obj){
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+function saveFile(filename, text, mime){
+  const blob = new Blob([text], { type: mime });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
 }
-const fname = base => base + (slug(state.title) ? '-' + slug(state.title) : '') + '.json';
+const download = (filename, obj) => saveFile(filename, JSON.stringify(obj, null, 2), 'application/json');
+const downloadMD = (filename, text) => saveFile(filename, text, 'text/markdown;charset=utf-8');
+const fname = (base, ext) => base + (slug(state.title) ? '-' + slug(state.title) : '') + '.' + (ext || 'json');
 function doExportPlan(){
   download(fname('plan-de-tables'), { type: 'plan-de-tables', ...state });
+}
+
+/* ================= Export Markdown =================
+   Du texte brut, lisible tel quel dans n'importe quel éditeur, et mis en forme
+   par les outils qui comprennent Markdown. Sens unique : ces fichiers ne se
+   ré-importent pas, exportez le JSON pour cela. */
+const GLAB = { M:'H', F:'F', '?':'?' };
+const docTitle = () => state.title || 'Plan de tables';
+const plural = (n, mot) => n + ' ' + mot + (n > 1 ? 's' : '');
+
+function tableMD(t, level){
+  const h = '#'.repeat(level), gc = genderCount(t), n = seats(t);
+  const compo = [plural(gc.M, 'homme'), plural(gc.F, 'femme')]
+    .concat(gc['?'] ? [gc['?'] + ' non précisé' + (gc['?'] > 1 ? 's' : '')] : []).join(', ');
+  const L = [`${h} ${t.name}${t.locked ? ' _(validée)_' : ''}`, '',
+             `${plural(n, 'personne')} — ${compo}`, ''];
+  const lignes = t.units.map(uidv => {
+    const e = UMAP[uidv];
+    return e ? `- ${unitNames(e.unit)}${e.unit.members.length > 1 ? ' _(couple)_' : ''} — ${e.group.name}` : '';
+  }).filter(Boolean);
+  L.push(...(lignes.length ? lignes : ['_(table vide)_']), '');
+  return L.join('\n');
+}
+
+function scenarioMD(sc, level){
+  const h = '#'.repeat(level);
+  const assigned = assignedSet(sc);
+  const placed = [...assigned].reduce((n,u) => n + (UMAP[u] ? unitSize(UMAP[u].unit) : 0), 0);
+  const total = totalGuests();
+  const L = [`${h} ${sc.name}`, '',
+             `${placed}/${total} placés · ${plural(sc.tables.length, 'table')}`, ''];
+  sc.tables.forEach(t => L.push(tableMD(t, level + 1)));
+  const reste = state.groups.flatMap(g => g.units.filter(u => !assigned.has(u.id))
+    .map(u => `- ${unitNames(u)}${u.members.length > 1 ? ' _(couple)_' : ''} — ${g.name}`));
+  if (reste.length) L.push(`${h}# Invités à placer (${total - placed})`, '', ...reste, '');
+  return L.join('\n');
+}
+
+function doExportTableMD(sc, t){
+  const md = [`# ${docTitle()} — ${sc.name}`, '', tableMD(t, 2)].join('\n');
+  const s = slug(t.name) || 'sans-nom';
+  downloadMD(fname(s.startsWith('table') ? s : 'table-' + s, 'md'), md); // évite « table-table-1 »
+}
+function doExportPlanMD(){
+  const L = [`# ${docTitle()}`, '',
+             `${plural(totalGuests(), 'personne')} · ${plural(state.scenarios.length, 'option')}`, ''];
+  state.scenarios.forEach(sc => L.push(scenarioMD(sc, 2)));
+  downloadMD(fname('plan-de-tables', 'md'), L.join('\n'));
+}
+function doExportListMD(){
+  const L = [`# ${docTitle()} — liste des invités`, '',
+             `${plural(totalGuests(), 'personne')} · ${plural(state.groups.length, 'groupe')}`, ''];
+  for (const g of state.groups){
+    L.push(`## ${g.name} (${g.units.reduce((n,u) => n + u.members.length, 0)})`, '');
+    L.push(...g.units.map(u => '- ' + u.members.map(p => `${p.name} (${GLAB[p.g]})`).join(' & ')), '');
+  }
+  downloadMD(fname('liste-invites', 'md'), L.join('\n'));
 }
 function doExportList(){
   download(fname('liste-invites'), {
