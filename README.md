@@ -27,7 +27,8 @@ Cet outil part de trois constats :
 | **Options multiples** | Autant de dispositions que voulu sur la même liste d'invités. Duplication en un clic pour partir d'une variante. |
 | **Couples** | Deux personnes forment une unité qui se déplace toujours ensemble (badge `×2`). |
 | **Groupes colorés** | Famille, amis, collègues… chaque groupe a sa couleur, visible d'un coup d'œil sur chaque étiquette. |
-| **Glisser-déposer** | À la souris sur ordinateur ; sur mobile/tablette, on touche un invité puis la table de destination. |
+| **Glisser-déposer** | À la souris sur ordinateur, entre tables **et** pour réordonner à l'intérieur d'une table (un trait indique où l'invité va s'insérer) ; sur mobile/tablette, on touche un invité puis la table de destination. |
+| **Renommage des personnes** | Bouton ✎ (ou double-clic sur le nom) à tout moment, y compris pour quelqu'un déjà placé : le placement est conservé dans toutes les options. |
 | **Tables verrouillables** | Une table « validée » passe en lecture seule et en vert. |
 | **Compteurs en direct** | Par table : nombre de personnes et répartition hommes/femmes. Globalement : placés / à placer. |
 | **Genre modifiable** | Un clic sur la pastille de couleur fait défiler Homme → Femme → `?`. |
@@ -68,6 +69,8 @@ L'application démarre **vide**, avec une première option prête à l'emploi.
 
 - **Clic sur une pastille de couleur** → change le genre de la personne (H → F → `?`).
 - **Clic sur un nom de table ou d'option** → renommage sur place (`Entrée` valide, `Échap` annule).
+- **✎ à côté d'un nom, ou double-clic sur ce nom** → renommage de la personne, même si elle est déjà assignée à une table (les placements suivent). Un nom déjà utilisé est refusé, pour garder l'import/export cohérent.
+- **Glisser une étiquette sur une autre, dans une table** → réordonne les invités ; le trait vert montre si l'insertion se fera au-dessus ou en dessous.
 - **Clic sur l'en-tête d'une option** → replie / déplie.
 - **✅ sur une table** → verrouille (validée) / déverrouille.
 - **✕ sur une étiquette dans « Invités à placer »** → supprime la personne de la liste, partout.

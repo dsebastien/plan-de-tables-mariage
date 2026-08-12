@@ -18,6 +18,9 @@ body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-
 .chip:active{cursor:grabbing;}
 .chip.sel{outline:2px solid var(--accent);outline-offset:1px;background:#eef2ec;}
 .dz-over{background:#e8efe8 !important;outline:2px dashed var(--accent);outline-offset:-2px;}
+.chip.dragging{opacity:.4;}
+.chip.ins-before{box-shadow:0 -3px 0 -1px var(--accent);}
+.chip.ins-after{box-shadow:0 3px 0 -1px var(--accent);}
 .mv-target{outline:2px dashed var(--gold);outline-offset:2px;animation:pulse 1.4s ease-in-out infinite;}
 @keyframes pulse{50%{outline-color:#e2c98a;}}
 @media (prefers-reduced-motion: reduce){.mv-target{animation:none;}}
@@ -165,14 +168,27 @@ const app = document.getElementById('app');
 function chipHTML(sid, u, ctx){ // ctx: {tid, locked} si dans une table
   const g = UMAP[u.id].group;
   const locked = ctx && ctx.locked;
+  /* Une même personne est affichée dans plusieurs options (et dans le vivier de
+     chacune) : on repère l'emplacement en cours d'édition pour n'ouvrir qu'un champ. */
+  const ekey = sid + '|' + (ctx ? ctx.tid : '');
+  const editingP = p => EDIT && EDIT.t === 'p' && EDIT.pid === p.id && EDIT.k === ekey;
+  const editingHere = !locked && u.members.some(editingP);
   const selected = !locked && SEL && SEL.sid === sid && SEL.u === u.id;
-  const members = u.members.map(p =>
-    `<span class="flex items-center gap-1.5 min-w-0">
+  const members = u.members.map(p => editingHere && editingP(p)
+    ? `<span class="flex items-center gap-1.5 min-w-0">
+        <span class="dot" style="background:${GDOT[p.g]}"></span>
+        <input data-edit value="${esc(p.name)}" maxlength="60"
+               class="text-sm bg-white border border-stone-300 rounded px-1 py-0.5 w-32 min-w-0">
+      </span>`
+    : `<span class="flex items-center gap-1.5 min-w-0">
       ${locked
         ? `<span class="dot" style="background:${GDOT[p.g]}"></span>`
         : `<button data-act="gender" data-p="${p.id}" title="Genre : ${p.g} (toucher pour changer)"
             class="dot" style="background:${GDOT[p.g]}"></button>`}
-      <span class="truncate">${esc(p.name)}</span>
+      <span class="truncate" ${locked ? '' : `data-pname="${p.id}" data-k="${ekey}"`}>${esc(p.name)}</span>
+      ${locked ? '' : `<button data-act="ren-p" data-p="${p.id}" data-k="${ekey}"
+            title="Renommer « ${esc(p.name)} » (ou double-clic sur le nom)"
+            class="flex-none w-6 h-6 rounded text-[11px] leading-none text-stone-300 hover:bg-stone-100 hover:text-stone-700">✎</button>`}
     </span>`).join('');
   const couple = u.members.length > 1
     ? `<span class="text-[10px] text-stone-400 border border-stone-200 rounded px-1">×2</span>` : '';
@@ -187,8 +203,8 @@ function chipHTML(sid, u, ctx){ // ctx: {tid, locked} si dans une table
       ${ctx ? '' : `<button data-act="u-del" data-u="${u.id}" title="Supprimer de la liste" class="w-6 h-6 rounded text-stone-300 hover:bg-rose-50 hover:text-rose-600">✕</button>`}
     </span>`;
   return `
-  <div class="chip flex items-center gap-2 bg-white rounded-lg border border-stone-200 px-2 py-1.5 text-sm ${selected ? 'sel' : ''} ${locked ? '!cursor-default' : ''}"
-       ${locked ? '' : `draggable="true" tabindex="0" data-chip data-sid="${sid}" data-u="${u.id}"`}
+  <div class="chip flex items-center gap-2 bg-white rounded-lg border border-stone-200 px-2 py-1.5 text-sm ${selected ? 'sel' : ''} ${locked || editingHere ? '!cursor-default' : ''}"
+       ${locked ? '' : `${editingHere ? '' : 'draggable="true"'} tabindex="0" data-chip data-sid="${sid}" data-u="${u.id}"`}
        style="border-left:4px solid ${g.color}">
     <span class="flex flex-col gap-0.5 min-w-0">${members}</span>
     ${ctrls}
@@ -433,6 +449,7 @@ function handleAct(b){
       reindex();
       break;
     }
+    case 'ren-p': EDIT = { t:'p', pid: d.p, k: d.k }; break;
     case 'gender': {
       const p = PMAP[d.p];
       p.g = p.g === 'M' ? 'F' : p.g === 'F' ? '?' : 'M';
@@ -535,8 +552,26 @@ document.addEventListener('change', e => {
 });
 
 /* Renommage inline */
+/* Renomme une personne partout à la fois : les tables référencent des unités par
+   identifiant, les placements sont donc conservés. Renvoie false si le nom est refusé. */
+function renamePerson(pid, v){
+  const p = PMAP[pid];
+  if (!p) return true;
+  const name = String(v || '').trim();
+  if (!name || name === p.name) return true;
+  if (Object.values(PMAP).some(q => q !== p && q.name === name)){
+    alert('« ' + name + ' » existe déjà dans la liste — ajoutez une précision pour les distinguer (ex. nom de famille).');
+    return false;
+  }
+  p.name = name;
+  return true;
+}
 function saveEdit(v){
   if (!EDIT) return;
+  if (EDIT.t === 'p'){
+    if (renamePerson(EDIT.pid, v)) EDIT = null;
+    render(); return;
+  }
   const sc = scById(EDIT.sid);
   if (sc){
     if (EDIT.t === 'sc') sc.name = v.trim() || sc.name;
@@ -545,6 +580,15 @@ function saveEdit(v){
   EDIT = null; render();
 }
 document.addEventListener('focusout', e => { if (e.target.matches('[data-edit]')) saveEdit(e.target.value); });
+/* Double-clic sur un nom = renommer (raccourci bureau, équivalent du bouton ✎) */
+document.addEventListener('dblclick', e => {
+  const n = e.target.closest('[data-pname]');
+  if (!n) return;
+  e.preventDefault();
+  SEL = null;
+  EDIT = { t:'p', pid: n.dataset.pname, k: n.dataset.k };
+  render();
+});
 document.addEventListener('keydown', e => {
   if ((e.target.id === 'npName' || e.target.id === 'npName2' || e.target.id === 'npNewGroup') && e.key === 'Enter'){
     const b = document.querySelector('[data-act="add-person-save"]');
@@ -558,37 +602,58 @@ document.addEventListener('keydown', e => {
   }
 });
 
-/* Glisser-déposer (bureau) */
+/* Glisser-déposer (bureau) : déplacer entre tables ET réordonner dans une table.
+   DROPT mémorise le repère d'insertion survolé ({u, after}) pour que le dépôt
+   suive exactement le trait affiché. */
+let DROPT = null, MZ = null, MC = null;
+function clearMarks(){
+  if (MZ){ MZ.classList.remove('dz-over'); MZ = null; }
+  if (MC){ MC.classList.remove('ins-before','ins-after'); MC = null; }
+  DROPT = null;
+}
 document.addEventListener('dragstart', e => {
   const c = e.target.closest('[data-chip]');
   if (!c) return;
   DRAG = { sid: c.dataset.sid, u: c.dataset.u };
+  c.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
   try { e.dataTransfer.setData('text/plain', c.dataset.u); } catch(_){}
 });
 document.addEventListener('dragover', e => {
+  clearMarks();
   const z = e.target.closest('[data-dz]');
-  if (z && DRAG && z.dataset.sid === DRAG.sid){
-    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
-    z.classList.add('dz-over');
-  }
-});
-document.addEventListener('dragleave', e => {
-  const z = e.target.closest('[data-dz]');
-  if (z) z.classList.remove('dz-over');
+  if (!z || !DRAG || z.dataset.sid !== DRAG.sid) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  z.classList.add('dz-over'); MZ = z;
+  if (!z.dataset.tid) return; // vivier : pas d'ordre à tenir
+  const chip = e.target.closest('[data-chip]');
+  if (!chip || chip.dataset.u === DRAG.u) return;
+  const r = chip.getBoundingClientRect();
+  const after = (e.clientY - r.top) > r.height / 2;
+  chip.classList.add(after ? 'ins-after' : 'ins-before'); MC = chip;
+  DROPT = { u: chip.dataset.u, after };
 });
 document.addEventListener('drop', e => {
   const z = e.target.closest('[data-dz]');
-  if (!z || !DRAG || z.dataset.sid !== DRAG.sid){ DRAG = null; return; }
+  if (!z || !DRAG || z.dataset.sid !== DRAG.sid){ clearMarks(); DRAG = null; return; }
   e.preventDefault();
-  const chip = e.target.closest('[data-chip]');
-  const before = (chip && z.dataset.tid && chip.dataset.u !== DRAG.u) ? chip.dataset.u : null;
-  moveUnit(scById(DRAG.sid), DRAG.u, z.dataset.tid || null, before);
+  const sc = scById(DRAG.sid);
+  let before = null;
+  if (z.dataset.tid && DROPT){
+    const t = tbById(sc, z.dataset.tid);
+    if (t){
+      const rest = t.units.filter(x => x !== DRAG.u);
+      const i = rest.indexOf(DROPT.u);
+      before = DROPT.after ? (rest[i + 1] || null) : DROPT.u; // en dernier → simple ajout en fin
+    }
+  }
+  clearMarks();
+  moveUnit(sc, DRAG.u, z.dataset.tid || null, before);
   DRAG = null; SEL = null; render();
 });
 document.addEventListener('dragend', () => {
-  DRAG = null;
-  document.querySelectorAll('.dz-over').forEach(el => el.classList.remove('dz-over'));
+  DRAG = null; clearMarks();
+  document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
 });
 
 /* ================= Export / Import JSON ================= */
